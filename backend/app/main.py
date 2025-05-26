@@ -19,7 +19,7 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from dotenv import load_dotenv
 from storage3.exceptions import StorageApiError
 from typing import List
-from app.shared_resources import supabase
+from app.shared_resources import *
 
 # Load environment variables from .env file
 load_dotenv()

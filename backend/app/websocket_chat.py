@@ -1,12 +1,12 @@
 from fastapi import WebSocket, WebSocketDisconnect
 from redisvl.extensions.session_manager import SemanticSessionManager
-from app.agent_system import process_message, create_conversation_thread
-from app.shared_resources import redis_client
-
 import json
 from datetime import datetime
 import asyncio
 import logging
+from typing import Dict, Any, List, Optional
+from app.shared_resources import redis_client
+from app.agent_system import create_conversation_thread, process_message
 
 logger = logging.getLogger(__name__)
 
@@ -14,11 +14,12 @@ logger = logging.getLogger(__name__)
 class ChatManager:
     def __init__(self):
         logger.info("ChatManager initialized")
-        self.active_connections: dict = {}
+        self.active_connections: Dict[str, WebSocket] = {}
         self.session_manager = SemanticSessionManager(
             name='binod_chat',
             redis_client=redis_client
         )
+        self.thinking_steps_cache: Dict[str, List[str]] = {}
         
     async def connect(self, websocket: WebSocket, thread_id: str = None):
         logger.info("Accepting WebSocket connection")
@@ -33,17 +34,36 @@ class ChatManager:
         if thread_id in self.active_connections:
             del self.active_connections[thread_id]
 
-    async def send_thinking_step(self, websocket: WebSocket, step: str):
+    async def send_thinking_step(self, websocket: WebSocket, step: str, thread_id: Optional[str] = None):
         """Send a thinking step to the client"""
         message = {
             "type": "thinking_step",
             "content": step
         }
         await websocket.send_json(message)
+        
+        # Cache thinking step if thread_id is provided
+        if thread_id:
+            if thread_id not in self.thinking_steps_cache:
+                self.thinking_steps_cache[thread_id] = []
+            self.thinking_steps_cache[thread_id].append(step)
+            
         logger.info(f"Sent thinking step: {step}")
 
-    async def send_response(self, websocket: WebSocket, content: str, thinking_steps: list[str]):
+    async def send_response(self, websocket: WebSocket, content: str, thinking_steps: List[str], thread_id: Optional[str] = None):
         """Send the final response to the client"""
+        # If thread_id is provided and we have cached thinking steps, merge them with the provided ones
+        if thread_id and thread_id in self.thinking_steps_cache:
+            # Combine cached steps with new ones, avoiding duplicates
+            all_steps = self.thinking_steps_cache[thread_id].copy()
+            for step in thinking_steps:
+                if step not in all_steps:
+                    all_steps.append(step)
+            thinking_steps = all_steps
+            
+            # Clear the cache after sending
+            self.thinking_steps_cache.pop(thread_id, None)
+        
         message = {
             "type": "response",
             "content": content,
@@ -110,16 +130,15 @@ async def chat_endpoint(websocket: WebSocket, thread_id: str = None):
             await chat_manager.store_message(thread_id, "user", content)
             logger.info(f"Thread {thread_id}: Stored user message: {content}")
             
-            # Initial thinking steps - will be updated by agent
-            thinking_steps = [
-                "Processing your message...",
-                "Searching for relevant information...",
-                "Generating response..."
+            # Initial thinking steps
+            initial_steps = [
+                "🧭 Analyzing your message...",
+                "🔍 Determining how to best respond..."
             ]
             
             # Show initial thinking steps
-            for step in thinking_steps:
-                await chat_manager.send_thinking_step(websocket, step)
+            for step in initial_steps:
+                await chat_manager.send_thinking_step(websocket, step, thread_id)
                 logger.info(f"Thread {thread_id}: Sent thinking step: {step}")
                 await asyncio.sleep(0.3)  # Short delay for UX
             
@@ -136,8 +155,8 @@ async def chat_endpoint(websocket: WebSocket, thread_id: str = None):
                 await chat_manager.store_message(thread_id, "assistant", response)
                 logger.info(f"Thread {thread_id}: Stored assistant response")
                 
-                # Send final response
-                await chat_manager.send_response(websocket, response, thinking_steps)
+                # Send final response with thinking steps
+                await chat_manager.send_response(websocket, response, thinking_steps, thread_id)
                 
             except Exception as e:
                 error_msg = f"Error processing message: {str(e)}"
@@ -159,4 +178,4 @@ async def chat_endpoint(websocket: WebSocket, thread_id: str = None):
                 "content": str(e)
             })
         except:
-            logger.error(f"Thread {thread_id}: Could not send error message to client") 
+            logger.error(f"Thread {thread_id}: Could not send error message to client")

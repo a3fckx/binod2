@@ -125,6 +125,3 @@ class DocumentVectorIndexer:
                 "exists": False,
                 "error": str(e)
             }
-
-# Global instance
-vector_indexer = DocumentVectorIndexer()

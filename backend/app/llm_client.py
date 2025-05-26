@@ -7,8 +7,9 @@ from typing import Optional, Dict, Any
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 from langchain.globals import set_llm_cache
-from langchain.cache import RedisSemanticCache
+from langchain_community.cache import RedisSemanticCache
 from langchain_huggingface import HuggingFaceEmbeddings
+
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -58,9 +59,5 @@ class ChatOpenRouter(ChatOpenAI):
             logger.error(f"Failed to initialize Redis semantic cache: {e}")
             logger.warning("Proceeding without cache")
 
-# Global LLM instance
+# Create and export LLM instance
 llm = ChatOpenRouter()
-
-# For backward compatibility
-llm_client = llm
-langchain_llm = llm
